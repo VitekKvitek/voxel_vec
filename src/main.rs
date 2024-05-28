@@ -1,5 +1,5 @@
-mod window_creator;
+use voxel_vec::run;
 
 fn main(){
-    window_creator::run();
+    pollster::block_on(run());
 }
