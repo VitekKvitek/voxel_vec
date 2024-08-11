@@ -17,6 +17,7 @@ struct Vertex {
     position: [f32; 3],
     color: [f32; 3],
 }
+
 impl Vertex {
     fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
@@ -49,13 +50,21 @@ impl Vertex {
 // facing us should have its vertices in counter-clockwise orde
 // RGB
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [0.0, 0.5, 0.0], color: [1.0, 0.0, 0.0] },
-    Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 1.0, 0.0] },
-    Vertex { position: [0.5, -0.5, 0.0], color: [0.0, 0.0, 1.0] },
+    Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
+    Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
+    Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
+    Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
+    Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
 ];
 
+const INDICES: &[u16] = &[
+    0, 1, 4,
+    1, 2, 4,
+    2, 3, 4,
+];
 // In Rust, a struct is a user-defined data type that groups together related data.
 struct State<'a> {
+    window: &'a Window,
     surface: wgpu::Surface<'a>,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -63,8 +72,8 @@ struct State<'a> {
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
-    window: &'a Window,
-    num_vertices: u32, 
+    index_buffer: wgpu::Buffer,
+    num_indices: u32, 
 }
 
 impl<'a> State<'a> {
@@ -197,9 +206,16 @@ impl<'a> State<'a> {
                 contents: bytemuck::cast_slice(VERTICES),
                 usage: wgpu::BufferUsages::VERTEX,
             });
-        let num_vertices = VERTICES.len() as u32;
+        let index_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(INDICES),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+        let num_indices = INDICES.len() as u32;
         // Construct and return the State struct with all the created resources
         Self {
+            window,
             surface,
             device,
             queue,
@@ -207,8 +223,8 @@ impl<'a> State<'a> {
             config,
             render_pipeline,
             vertex_buffer,
-            window,
-            num_vertices,
+            index_buffer,
+            num_indices,
         }
     }
 
@@ -267,10 +283,11 @@ impl<'a> State<'a> {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.draw(0..self.num_vertices, 0..1);
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+
         }
 
         self.queue.submit(iter::once(encoder.finish()));
