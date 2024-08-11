@@ -7,6 +7,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+cgmath = "0.18"
 cfg-if = "1"
 winit = { version = "0.29", features = ["rwh_05"] }
 env_logger = "0.11.4"
@@ -26,7 +27,6 @@ web-sys = { version = "0.3", features = [
     "Window",
     "Element",
 ]}
-
 [dependencies.image]
 version = "0.24"
 default-features = false
