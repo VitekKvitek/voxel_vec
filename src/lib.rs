@@ -1,5 +1,5 @@
 use std::iter;
-
+use wgpu::util::DeviceExt;
 use winit::{
     event::*,
     event_loop::EventLoop,
@@ -10,22 +10,67 @@ use winit::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+// Vertex struct
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+impl Vertex {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            // The array_stride defines how wide a vertex is. 
+            // When the shader goes to read the next vertex, it will skip over the array_stride number of bytes. 
+            // In our case, array_stride will probably be 24 bytes.
+            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            // step_mode tells the pipeline whether each element of the array in this buffer represents per-vertex data or per-instance data.
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                }
+            ]
+        }
+    }
+}
+//We arrange the vertices in counter-clockwise order: top, bottom left,
+// bottom right. We do it this way partially out of tradition, but mostly 
+// because we specified in the primitive of the render_pipeline that we want
+// the front_face of our triangle to be wgpu::FrontFace::Ccw so that we
+// cull the back face. This means that any triangle that should be
+// facing us should have its vertices in counter-clockwise orde
+// RGB
+const VERTICES: &[Vertex] = &[
+    Vertex { position: [0.0, 0.5, 0.0], color: [1.0, 0.0, 0.0] },
+    Vertex { position: [-0.5, -0.5, 0.0], color: [0.0, 1.0, 0.0] },
+    Vertex { position: [0.5, -0.5, 0.0], color: [0.0, 0.0, 1.0] },
+];
+
+// In Rust, a struct is a user-defined data type that groups together related data.
 struct State<'a> {
     surface: wgpu::Surface<'a>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
-    // NEW!
     render_pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
     window: &'a Window,
+    num_vertices: u32, 
 }
 
 impl<'a> State<'a> {
     async fn new(window: &'a Window) -> State<'a> {
         // Retrieve the size of the window
         let size = window.inner_size();
-
         // Create a new wgpu Instance which serves as a handle to the GPU.
         // The backend is selected based on the platform:
         // - On non-web platforms, it supports Vulkan, Metal, DirectX 12, and WebGPU.
@@ -41,7 +86,7 @@ impl<'a> State<'a> {
         // Create a surface that represents the connection between the GPU and the window
         let surface = instance.create_surface(window).unwrap();
 
-        // Request an adapter (a GPU) from the instance that is compatible with the surface
+        // Requests an adapter, which is essentially a GPU that is compatible with the surface. It chooses a GPU based on power preference and compatibility.
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
@@ -112,7 +157,9 @@ impl<'a> State<'a> {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[],
+                buffers: &[
+                    Vertex::desc()
+                ],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -143,7 +190,14 @@ impl<'a> State<'a> {
             },
             multiview: None,
         });
-
+        
+        let vertex_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(VERTICES),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let num_vertices = VERTICES.len() as u32;
         // Construct and return the State struct with all the created resources
         Self {
             surface,
@@ -152,16 +206,20 @@ impl<'a> State<'a> {
             size,
             config,
             render_pipeline,
+            vertex_buffer,
             window,
+            num_vertices,
         }
     }
 
 
-
+    //  Returns a reference to the window associated with this State.
     pub fn window(&self) -> &Window {
         &self.window
     }
-
+    
+    // Adjusts the size of the rendering surface when the window is resized.
+    // Updates the configuration to match the new window dimensions.
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
@@ -170,7 +228,6 @@ impl<'a> State<'a> {
             self.surface.configure(&self.device, &self.config);
         }
     }
-
     #[allow(unused_variables)]
     fn input(&mut self, event: &WindowEvent) -> bool {
         false
@@ -198,9 +255,9 @@ impl<'a> State<'a> {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 1.0,
-                            g: 0.2,
-                            b: 0.3,
+                            r: 0.2,
+                            g: 0.4,
+                            b: 1.0,
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -212,7 +269,8 @@ impl<'a> State<'a> {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.draw(0..3, 0..1);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.draw(0..self.num_vertices, 0..1);
         }
 
         self.queue.submit(iter::once(encoder.finish()));
